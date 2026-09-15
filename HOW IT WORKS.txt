@@ -1,0 +1,447 @@
+=============================================================================
+   SISTEMA DE GESTÃO DE PADARIA - EXPLICAÇÕES BÁSICAS SOBRE O CÓDIGO
+=============================================================================
+
+Este ficheiro explica, de forma simples, como o programa funciona por dentro:
+que ficheiros existem, o que cada um faz e como as peças se ligam.
+
+
+-----------------------------------------------------------------------------
+1. VISÃO GERAL: OS TRÊS FICHEIROS
+-----------------------------------------------------------------------------
+
+O programa está dividido em três ficheiros, cada um com uma responsabilidade:
+
+  main.py        -> arranque do programa. Cria a janela e entrega-a à
+                    interface. Tem apenas 5 linhas úteis.
+
+  estruturas.py  -> a "lógica" do sistema: a lista ligada dupla, os produtos,
+                    as vendas e todas as operações (cadastrar, buscar,
+                    alterar, eliminar, listar, ordenar). NÃO sabe nada de
+                    janelas ou botões.
+
+  interface.py   -> a "apresentação": a janela Tkinter, os botões, o
+                    formulário e as tabelas. Lê o que o utilizador escreve,
+                    converte para números/datas e chama as operações de
+                    estruturas.py.
+
+Porquê separar? Porque assim a lógica (estruturas.py) pode ser testada e
+percebida sozinha, sem depender de interface gráfica, e a interface pode
+mudar sem tocar na lógica.
+
+Como executar:   python3 main.py
+
+
+-----------------------------------------------------------------------------
+2. FLUXO DE ARRANQUE (main.py)
+-----------------------------------------------------------------------------
+
+  1. root = tk.Tk()             -> cria a janela principal
+  2. AplicacaoPadaria(root)     -> constrói toda a interface dentro da janela
+  3. root.mainloop()            -> fica à espera de cliques e teclas
+                                   (o programa "vive" aqui até fechar a janela)
+
+
+-----------------------------------------------------------------------------
+3. A ESTRUTURA DE DADOS: LISTA LIGADA DUPLA (estruturas.py)
+-----------------------------------------------------------------------------
+
+3.1 O que é um nó (classe No)
+-----------------------------
+Cada nó guarda três coisas:
+
+   +-----------+-----------+-----------+
+   | anterior  |   valor   |  proximo  |
+   +-----------+-----------+-----------+
+        |                        |
+   aponta para o            aponta para o
+   nó de trás               nó da frente
+
+  - valor     -> o dado guardado (um Produto ou uma Venda)
+  - anterior  -> referência ao nó anterior (None se for o primeiro)
+  - proximo   -> referência ao nó seguinte (None se for o último)
+
+O "__slots__" apenas poupa memória: diz ao Python que o nó só tem estes
+três atributos.
+
+
+3.2 A lista (classe ListaLigadaDupla)
+-------------------------------------
+A lista guarda três coisas:
+
+  - cabeca   -> o primeiro nó
+  - cauda    -> o último nó
+  - tamanho  -> quantos nós existem
+
+Desenho de uma lista com 3 produtos:
+
+   cabeca                                          cauda
+     |                                               |
+     v                                               v
+   None <- [ Pão ] <-> [ Bolo ] <-> [ Pastel ] -> None
+
+Cada seta "<->" representa as duas ligações: proximo de um e anterior do
+outro.
+
+
+3.3 Porquê lista DUPLA e não simples?
+-------------------------------------
+Numa lista simples cada nó só conhece o seguinte. Na dupla conhece os dois
+vizinhos. Isso dá três vantagens usadas neste trabalho:
+
+  a) Inserir no fim é O(1): como temos o ponteiro "cauda", não é preciso
+     percorrer a lista até ao último nó.
+
+  b) Remover um nó é O(1) quando já temos o nó na mão: ele sabe quem é o
+     anterior, por isso basta religar os vizinhos.
+
+  c) Podemos percorrer nos dois sentidos. Isto é usado para:
+       - chegar a uma posição a partir da extremidade mais próxima;
+       - listar as vendas da mais recente para a mais antiga.
+
+
+3.4 Operações da lista genérica
+-------------------------------
+
+inserir_fim(valor)
+  Cria um nó novo e cola-o depois da cauda:
+     novo.anterior = cauda      (o novo aponta para trás)
+     cauda.proximo = novo       (o antigo último aponta para o novo)
+     cauda = novo               (o novo passa a ser a cauda)
+  Se a lista estiver vazia, o novo nó é ao mesmo tempo cabeça e cauda.
+  Complexidade: O(1).
+
+no_na_posicao(posicao)
+  Devolve o nó na posição pedida (1 = primeiro).
+  Truque: se a posição está na primeira metade, começa na cabeça e anda
+  para a frente; se está na segunda metade, começa na cauda e anda para
+  trás. No pior caso percorre só metade da lista.
+  Se a posição for inválida, levanta ValueError com mensagem clara.
+
+remover_no(no)
+  Religa os vizinhos do nó de forma a "saltarem" por cima dele:
+
+     antes:   [A] <-> [B] <-> [C]        (queremos remover B)
+     depois:  [A] <-------> [C]
+
+  Casos especiais tratados:
+     - B era a cabeça  -> a cabeça passa a ser C
+     - B era a cauda   -> a cauda passa a ser A
+  Devolve o valor que estava no nó. Complexidade: O(1).
+
+remover_por_posicao(posicao)
+  Junta as duas anteriores: encontra o nó e remove-o.
+
+Travessias:
+  __iter__              -> permite escrever "for produto in lista"
+                           (percorre valores da cabeça até à cauda)
+  percorrer_nos         -> igual, mas devolve os nós em vez dos valores
+  percorrer_nos_inverso -> percorre da cauda até à cabeça
+  valores()             -> lista Python com todos os valores, por ordem
+  valores_invertidos()  -> lista Python com todos os valores, ao contrário
+
+
+-----------------------------------------------------------------------------
+4. OS DADOS DO NEGÓCIO: Produto e Venda
+-----------------------------------------------------------------------------
+
+O nó é uma peça da estrutura; o Produto é a informação da padaria. Estão
+separados para que a mesma lista sirva para produtos e para vendas.
+
+Ambos são "dataclasses": o Python gera automaticamente o __init__ e o
+__repr__ a partir dos campos declarados.
+
+Produto
+  Campos: codigo, nome, categoria, preco, quantidade, validade (date).
+  __post_init__ corre logo a seguir à criação e valida:
+     - nome e categoria não podem ser vazios
+     - preco e quantidade não podem ser negativos
+  Se algo falhar, levanta ValueError com a mensagem pronta para o ecrã.
+
+Venda
+  Campos: codigo_produto, nome_produto, quantidade, preco_unitario, data.
+  "data" é preenchida automaticamente com datetime.now() no momento da venda.
+  "total" é uma @property: calcula quantidade * preco_unitario sempre que
+  é pedido, sem guardar o valor.
+
+
+-----------------------------------------------------------------------------
+5. FUNÇÕES AUXILIARES (estruturas.py)
+-----------------------------------------------------------------------------
+
+analisar_data(texto)
+  Converte "dd/mm/aaaa" num objecto date. Se o formato estiver errado,
+  levanta ValueError com uma mensagem amigável.
+
+validar_atributo(atributo)
+  Confirma que o nome do atributo é um dos seis conhecidos (ATRIBUTOS)
+  antes de ser usado em getattr(). Evita erros internos do Python.
+
+formatar_valor(valor)
+  Prepara um valor para mostrar ao utilizador:
+     date  -> "15/09/2026"
+     float -> "80.00"
+     outro -> texto normal
+
+valores_iguais(guardado, procurado)
+  Compara o que está no produto com o texto que o utilizador escreveu,
+  respeitando o tipo:
+     - datas:   "15/09/2026" é convertida e comparada como date
+     - números: "80" ou "80,5" são convertidos para float
+     - texto:   comparação ignorando maiúsculas/minúsculas e espaços
+  Graças a isto, procurar preço "80" encontra 80.0 e procurar categoria
+  "pão" encontra "Pão".
+
+chave_ordenacao(valor)
+  Para ordenar: textos passam a minúsculas (para "bolo" e "Bolo" ficarem
+  juntos); números e datas ficam como estão.
+
+getattr(objecto, "nome_do_campo")
+  Função nativa do Python usada em várias operações. Permite aceder a um
+  campo cujo nome só se sabe em tempo de execução, por exemplo:
+     getattr(produto, "preco")  é o mesmo que  produto.preco
+  É isto que permite buscar/ordenar por qualquer atributo escolhido no menu.
+
+
+-----------------------------------------------------------------------------
+6. OPERAÇÕES SOBRE PRODUTOS (classe ListaProdutos)
+-----------------------------------------------------------------------------
+
+ListaProdutos HERDA de ListaLigadaDupla: tem tudo o que a lista genérica
+tem, mais as operações específicas de produtos.
+
+CADASTRAR
+  cadastrar(produto)
+    1. verifica se já existe produto com o mesmo código (se sim -> erro)
+    2. inserir_fim(produto)
+
+BUSCAR
+  _no_por_codigo(codigo)
+    Percorre os nós um a um até encontrar o código. Devolve o nó (ou None).
+    É "privado" (começa por _) porque é usado internamente pelas outras
+    operações que precisam do nó e não só do produto.
+
+  buscar_por_codigo(codigo)
+    Igual, mas devolve o produto em vez do nó.
+
+  buscar_por_um_atributo(atributo, valor)
+    Percorre todos os produtos e devolve os que têm getattr(p, atributo)
+    igual ao valor (usando valores_iguais).
+
+  buscar_por_dois_atributos(a1, v1, a2, v2)
+    Igual, mas as duas condições têm de ser verdadeiras ao mesmo tempo.
+
+ALTERAR
+  alterar_por_codigo(codigo, novos_dados)
+    1. encontra o nó pelo código (erro se não existir)
+    2. ignora os campos que vêm a None (campos deixados em branco)
+    3. se nenhum campo foi preenchido -> erro
+    4. no.valor = replace(no.valor, **alteracoes)
+       replace() cria um Produto NOVO com os campos alterados. Como cria um
+       produto novo, o __post_init__ corre outra vez e volta a validar tudo.
+
+  dar_baixa_stock(codigo, quantidade)
+    Encontra o produto, confirma que há stock suficiente e subtrai a
+    quantidade. É chamada quando se regista uma venda.
+
+ELIMINAR
+  eliminar_por_posicao(posicao)  -> usa remover_por_posicao da lista
+  eliminar_por_codigo(codigo)    -> encontra o nó e chama remover_no
+  Ambas devolvem o produto removido (para a interface mostrar o nome).
+
+LISTAR
+  listar_todos()                 -> todos os produtos por ordem de inserção
+  listar_por_criterio(atr, val)  -> o mesmo que buscar_por_um_atributo
+  listar_ordenado(atributo, decrescente)
+    Copia os produtos para uma lista Python e ordena-a com BUBBLE SORT:
+
+      - compara cada elemento com o seguinte;
+      - se estiverem fora de ordem, troca-os;
+      - repete até já não haver trocas.
+
+    A variável "trocou" permite parar cedo: se numa passagem completa não
+    houve trocas, a lista já está ordenada.
+    Com "decrescente=True" apenas inverte a condição de troca (a < b em vez
+    de a > b).
+    Complexidade: O(n^2) no pior caso. Foi escrito à mão por exigência do
+    trabalho; a lista original não é alterada, só a cópia.
+
+
+-----------------------------------------------------------------------------
+7. OPERAÇÕES SOBRE VENDAS (classe ListaVendas)
+-----------------------------------------------------------------------------
+
+Também herda de ListaLigadaDupla.
+
+  registar_venda(codigo, nome, quantidade, preco)
+    Valida quantidade > 0, cria a Venda e insere no fim.
+
+  listar_todas()
+    Da mais antiga para a mais recente.
+
+  listar_recentes_primeiro()
+    Da mais recente para a mais antiga. Usa a travessia INVERSA
+    (da cauda para a cabeça), que só é possível numa lista dupla.
+
+  total_vendas()      -> soma de todos os "total"
+  total_quantidade()  -> soma de todas as quantidades
+
+
+-----------------------------------------------------------------------------
+8. A INTERFACE (interface.py)
+-----------------------------------------------------------------------------
+
+8.1 A classe AplicacaoPadaria
+-----------------------------
+No __init__:
+  1. cria as duas listas: self.lista (produtos) e self.lista_vendas
+  2. _popular_exemplo() -> cadastra 4 produtos e 3 vendas de exemplo
+  3. _construir_layout() -> monta a janela
+
+8.2 Como a janela está organizada
+---------------------------------
+
+   +----------------+---------------------------------------------+
+   |   Operações    |  [ Dados do Produto ]                       |
+   |                |   Código: [__]  Nome: [__]  Categoria: [__] |
+   | [Buscar Prod.] |   Preço:  [__]  Qtd:  [__]  Validade:  [__] |
+   | [Reg. Venda  ] |   Validade no formato dd/mm/aaaa            |
+   | [Buscar 1 atr] |              [Cadastrar] [Alterar (código)] |
+   | [Buscar 2 atr] +---------------------------------------------+
+   | [Elim. posiç.] |  Aba "Registos"  |  Aba "Vendas"            |
+   | [Elim. código] |                                             |
+   | [Listar todos] |   tabela (Treeview) com os produtos         |
+   | [Listar crit.] |   ou com as vendas                          |
+   | [Listar orden] |                                             |
+   +----------------+---------------------------------------------+
+
+  - Sidebar (esquerda): uma lista de pares (texto, função). Para cada par
+    é criado um botão cujo "command" é a função. Clicar no botão chama o
+    método acao_* correspondente. Só cá estão as operações que abrem um
+    diálogo ou não precisam de dados (9 botões).
+
+  - Formulário "Dados do Produto": 6 caixas de texto (ttk.Entry), uma por
+    atributo, guardadas no dicionário self.entradas. Por baixo do formulário
+    ficam os dois botões que lêem esses campos: "Cadastrar" e "Alterar (por
+    código)" — estão junto do formulário porque é dali que vêm os dados.
+    O formulário é preenchido automaticamente por Buscar Produto.
+
+  - Abas (ttk.Notebook): "Registos" mostra produtos, "Vendas" mostra vendas
+    com os totais em baixo.
+
+8.3 As tabelas (_criar_tabela)
+------------------------------
+Cria um ttk.Treeview com as colunas pedidas e uma barra de deslocamento.
+Para actualizar:
+  _atualizar_tabela_registos(produtos)
+    Apaga todas as linhas e volta a inserir. Se não receber lista, mostra
+    todos os produtos. Isto permite que buscas/ordenações mostrem só um
+    subconjunto, e "Listar todos" volte ao normal.
+  _atualizar_tabela_vendas()
+    Igual, mas usa listar_recentes_primeiro() e actualiza os totais.
+
+8.4 O diálogo genérico (_dialogo)
+---------------------------------
+Quase todas as acções precisam de perguntar algo ao utilizador (um código,
+uma posição, um atributo). Em vez de escrever uma janela para cada uma,
+existe uma única função que recebe a descrição dos campos:
+
+   _dialogo("Título", [
+       ("chave", "Texto da etiqueta", "tipo"),
+       ...
+   ])
+
+Tipos de campo:
+   "texto"    -> caixa de texto, devolve string
+   "atributo" -> caixa de escolha com os 6 atributos, devolve o nome interno
+                 (ex.: mostra "Preço", devolve "preco")
+   "opcao"    -> caixa de verificação, devolve True/False
+
+Devolve um dicionário {chave: valor} se o utilizador confirmar, ou None se
+cancelar (Escape ou fechar a janela). A janela é MODAL: grab_set() bloqueia
+a janela principal e wait_window() faz a função esperar até ela fechar.
+
+8.5 Conversão de texto
+----------------------
+Tudo o que vem das caixas de texto é string. Três funções convertem e
+validam:
+   texto_obrigatorio(texto, campo) -> erro se estiver vazio
+   para_inteiro(texto, campo)      -> int, erro se não for número inteiro
+   para_numero(texto, campo)       -> float, aceita "80", "80.5" e "80,5"
+
+8.6 Tratamento de erros
+-----------------------
+Regra do projecto: TODAS as validações (na interface e em estruturas.py)
+levantam ValueError com uma mensagem já escrita para o utilizador.
+
+Por isso cada acção segue o mesmo padrão:
+
+   try:
+       ... converter dados, chamar a operação, actualizar a tabela ...
+   except ValueError as e:
+       messagebox.showerror("Erro", str(e))
+
+Um único "except" apanha tudo: formato de data errado, código repetido,
+stock insuficiente, posição inválida, etc. E o utilizador nunca vê erros
+internos do Python.
+
+8.7 Exemplo de fluxo completo: Registar Venda
+---------------------------------------------
+  1. Utilizador clica em "Registar Venda"          (interface)
+  2. _dialogo pede código e quantidade             (interface)
+  3. para_inteiro converte os dois textos          (interface)
+  4. lista.dar_baixa_stock(codigo, qtd)            (estruturas)
+        - encontra o produto na lista ligada
+        - verifica stock, subtrai a quantidade
+  5. lista_vendas.registar_venda(...)              (estruturas)
+        - cria a Venda com data/hora actual
+        - inserir_fim na lista de vendas
+  6. actualiza as duas tabelas, muda para a aba Vendas, mostra mensagem
+  7. se algum passo levantar ValueError, salta para o except e mostra o erro
+
+Exemplo: Cadastrar
+  1. _ler_formulario() lê as 6 caixas de texto
+  2. cada campo é convertido (para_inteiro, para_numero, analisar_data...)
+  3. Produto(...) é criado -> __post_init__ valida
+  4. lista.cadastrar(produto) -> verifica código duplicado e insere no fim
+  5. actualiza a tabela e limpa o formulário
+
+
+-----------------------------------------------------------------------------
+9. RESUMO DAS COMPLEXIDADES
+-----------------------------------------------------------------------------
+
+   Operação                         Complexidade   Porquê
+   -------------------------------  ------------   --------------------------
+   inserir_fim                      O(1)           ponteiro para a cauda
+   remover_no (já com o nó)         O(1)           nó conhece os vizinhos
+   no_na_posicao                    O(n/2)         parte da ponta mais perto
+   buscar por código                O(n)           percorre até encontrar
+   buscar por 1 ou 2 atributos      O(n)           percorre tudo
+   eliminar por código              O(n)           busca O(n) + remoção O(1)
+   eliminar por posição             O(n/2)         acesso O(n/2) + remoção O(1)
+   listar todos / vendas            O(n)           percorre tudo
+   listar ordenado (bubble sort)    O(n^2)         dois ciclos encadeados
+   total_vendas / total_quantidade  O(n)           soma percorrendo tudo
+
+
+-----------------------------------------------------------------------------
+10. GLOSSÁRIO RÁPIDO
+-----------------------------------------------------------------------------
+
+  Nó (No)          - elemento da lista; guarda um valor e duas ligações.
+  Cabeça (cabeca)  - primeiro nó da lista.
+  Cauda (cauda)    - último nó da lista.
+  Travessia        - percorrer a lista nó a nó.
+  O(1)             - tempo constante, não depende do tamanho da lista.
+  O(n)             - tempo proporcional ao número de elementos.
+  O(n^2)           - tempo proporcional ao quadrado do número de elementos.
+  dataclass        - classe Python que gera automaticamente __init__ etc.
+  __post_init__    - método corrido logo após a criação de uma dataclass.
+  replace()        - cria uma cópia de uma dataclass com alguns campos novos.
+  @property        - método que se usa como se fosse um atributo (venda.total).
+  getattr(obj, s)  - acede ao atributo cujo nome está na string s.
+  ValueError       - excepção usada em todo o projecto para erros do utilizador.
+  Treeview         - widget Tkinter que mostra uma tabela.
+  Notebook         - widget Tkinter com abas.
+  Modal            - janela que bloqueia a principal até ser fechada.
